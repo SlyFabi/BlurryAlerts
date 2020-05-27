@@ -19,7 +19,14 @@
 {
 	UIAlertAction * _action;
 	UILabel * _label;
+	UIAlertController* _alertController;
 }
+
+@property (nonatomic, retain) UIVisualEffectView *baActionBackgroundBlurView;
+
+-(void)setHighlighted:(BOOL)arg1;
+
+- (void)applyButtonStyle:(BOOL)isHighlighted;
 
 @end
 
@@ -77,7 +84,14 @@
 
 @property (nonatomic, assign) BOOL isBAEnabled;
 
-- (void)applyButtonBlur:(_UIAlertControllerActionView*)view;
 - (void)removeSeperatorViews:(NSArray*)subviews;
+
+@end
+
+@interface UIBlurEffect (HookCat)
+{
+}
+
++(id)effectWithBlurRadius:(double)arg1 ;
 
 @end

@@ -10,6 +10,7 @@ TWEAK_NAME = BlurryAlerts
 
 BlurryAlerts_FILES = Tweak.xm
 BlurryAlerts_CFLAGS = -fobjc-arc
+BlurryAlerts_LIBRARIES = colorpicker
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 SUBPROJECTS += blurryalerts
