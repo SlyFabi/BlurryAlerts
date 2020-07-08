@@ -45,15 +45,19 @@ static NSString *prefsFileName = @"com.slyfabi.blurryalerts";
     
     [alertController addAction:destructiveAction];
     [alertController addAction:okAction];
-    [self presentViewController:alertController animated: YES completion: nil];
+    [self presentViewController:alertController animated:YES completion:nil];
 }
 
 - (void)testAlert {
 	UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Test Alert" message:@"This is a test alert." preferredStyle:UIAlertControllerStyleAlert];
 	UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction * action) {}];
+	UIAlertAction *desAction = [UIAlertAction actionWithTitle:@"Destructive" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * action) {}];
+	UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction * action) {}];
     
     [alertController addAction:okAction];
-    [self presentViewController:alertController animated: YES completion: nil];
+	[alertController addAction:desAction];
+	[alertController addAction:cancelAction];
+    [self presentViewController:alertController animated:YES completion:nil];
 }
 
 - (void)resetSettings {
@@ -73,11 +77,15 @@ static NSString *prefsFileName = @"com.slyfabi.blurryalerts";
     
     [alertController addAction:destructiveAction];
     [alertController addAction:okAction];
-    [self presentViewController:alertController animated: YES completion: nil];
+    [self presentViewController:alertController animated:YES completion:nil];
 }
 
 - (void)openTwitter {
 	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://twitter.com/SlyFabi140"] options:@{} completionHandler:nil];
+}
+
+- (void)openDonate {
+	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=VVQVBS8DS36LY&source=url"] options:@{} completionHandler:nil];
 }
 
 - (void)openRepo {

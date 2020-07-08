@@ -1,10 +1,11 @@
 Package: com.slyfabi.blurryalerts
 Name: BlurryAlerts
 Depends: mobilesubstrate, ws.hbang.alderis
-Version: 1.0.0
+Version: 1.2.2
 Architecture: iphoneos-arm
 Description: tvOS style alerts!
 Maintainer: SlyFabi
 Author: SlyFabi
 Section: Tweaks
+Icon: file:///Library/PreferenceBundles/BlurryAlerts.bundle/icon@3x.png
 Depiction: https://slyfabi.github.io/depictions/?p=com.slyfabi.blurryalerts

@@ -20,19 +20,35 @@
 #define BUTTON_BLUR_STYLE_NONE 3
 
 static BOOL tweakEnabled = YES;
+static BOOL displaySheetsAsAlerts = NO;
+static BOOL dismissAnywhere = NO;
+static BOOL removeCancelAction = NO;
 static long backgroundBlurStyle = BG_BLUR_STYLE_GLASS;
 static int backgroundBlurIntensity = 10;
 static float backgroundBlurColorIntensity = 0.2;
 
 static long buttonBlurStyle = BUTTON_BLUR_STYLE_NONE;
 static float buttonBackgroundColorAlpha = 0.5;
-static UIColor *buttonBackgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.2 alpha:buttonBackgroundColorAlpha];
+static UIColor *buttonBackgroundColor;
 static int buttonBlurIntensity = 10;
 static float buttonBlurColorIntensity = 0.3;
+
+static float buttonDestructiveColorAlpha = 1;
+static UIColor *buttonDestructiveColor;
 
 %hook _UIAlertControllerActionView
 
 %property (nonatomic, retain) UIVisualEffectView *baActionBackgroundBlurView;
+
+// Workaround for sheets
+-(void)tintColorDidChange {
+	%orig;
+
+	UIAlertController *controller = MSHookIvar<UIAlertController*>(self, "_alertController");
+	if(controller.isBAEnabled) {
+		[self applyButtonStyle:NO];
+	}
+}
 
 -(void)setHighlighted:(BOOL)arg1 {
 	%orig;
@@ -67,7 +83,7 @@ static float buttonBlurColorIntensity = 0.3;
 		label.textColor = [UIColor whiteColor];
 
 		if(action.style == UIAlertActionStyleDestructive) {
-			self.backgroundColor = [UIColor colorWithRed:0.6 green:0 blue:0 alpha:1];
+			self.backgroundColor = buttonDestructiveColor;
 			label.font = [UIFont fontWithDescriptor:fontBold size:0];
 		} else {
 			if(buttonBlurStyle == BUTTON_BLUR_STYLE_NONE) {
@@ -113,18 +129,46 @@ static float buttonBlurColorIntensity = 0.3;
 
 %end
 
+%hook _UIAlertControllerView
+
+- (void)_configureActionGroupViewToAllowHorizontalLayout:(bool)arg1 {
+	UIAlertController *controller = MSHookIvar<UIAlertController*>(self, "_alertController");
+
+	if(!controller.isBAEnabled) {
+		return %orig;
+	}
+
+	if(removeCancelAction && arg1) {
+		%orig(false);
+		return;
+	}
+
+	%orig;
+}
+
+%end
+
 %hook UIAlertController
 
 %property (nonatomic, assign) BOOL isBAEnabled;
+%property (nonatomic, assign) BOOL isBAActionSheet;
+%property (retain) UIInterfaceActionRepresentationView *baCancelActionView;
 
 + (id)alertControllerWithTitle:(id)title message:(id)message preferredStyle:(long long)style {
-	UIAlertController *alertController = %orig;
+	UIAlertController *alertController = nil;
+	if(displaySheetsAsAlerts) {
+		alertController = %orig(title, message, UIAlertControllerStyleAlert);
+	} else {
+		alertController = %orig;
+	}
+
+	if(style == UIAlertControllerStyleActionSheet) {
+		alertController.isBAActionSheet = YES;
+	}
 
 	alertController.isBAEnabled = NO;
-	if(tweakEnabled) {
-		if(style != UIAlertControllerStyleActionSheet) {
-			alertController.isBAEnabled = YES;
-		}
+	if(tweakEnabled && alertController.preferredStyle != UIAlertControllerStyleActionSheet) {
+		alertController.isBAEnabled = YES;
 	}
 
 	return alertController;
@@ -132,19 +176,43 @@ static float buttonBlurColorIntensity = 0.3;
 
 - (id)init {
 	UIAlertController *alertController = %orig;
-	alertController.isBAEnabled = tweakEnabled;
+	alertController.isBAEnabled = tweakEnabled && alertController.preferredStyle != UIAlertControllerStyleActionSheet;
+	if(displaySheetsAsAlerts) {
+		alertController.isBAEnabled = YES;
+		[alertController setPreferredStyle:UIAlertControllerStyleAlert];
+	}
 	return alertController;
 }
 
 - (void)setPreferredStyle:(long long)style {
-	%orig;
-	
-	self.isBAEnabled = NO;
-	if(tweakEnabled) {
-		if(style != UIAlertControllerStyleActionSheet) {
-			self.isBAEnabled = YES;
-		}
+	if(!self.isBAEnabled) {
+		%orig;
+		return;
 	}
+
+	if(style == UIAlertControllerStyleActionSheet) {
+		self.isBAActionSheet = YES;
+	}
+
+	if(displaySheetsAsAlerts) {
+		%orig(UIAlertControllerStyleAlert);
+	} else {
+		%orig;
+		self.isBAEnabled = self.preferredStyle != UIAlertControllerStyleActionSheet;
+	}
+}
+
+-(void)setContentViewController:(id)arg1 {
+	self.isBAEnabled = NO; // Disable here we can´t style every custom controller
+	if(self.isBAActionSheet) {
+		BOOL prevTmp = displaySheetsAsAlerts;
+		displaySheetsAsAlerts = NO;
+		[self setPreferredStyle:UIAlertControllerStyleActionSheet];
+		displaySheetsAsAlerts = prevTmp;
+	}
+	
+	%orig;
+	DBG(@"[BlurryAlerts] Custom Controller: %@", arg1); 
 }
 
 // _dimmingView -> blurView
@@ -172,15 +240,7 @@ static float buttonBlurColorIntensity = 0.3;
 	DBG(@"[BlurryAlerts] Background: %@", bgView);
 
 	// Color Text
-	for(UIView *textSuperView in [mainView arrangedHeaderViews]) {
-		for(UIView *textView in [textSuperView subviews]) {
-			if([textView isKindOfClass:%c(UILabel)]) {
-				UILabel *label = (UILabel*)textView;
-				label.tintColor = [UIColor whiteColor];
-				label.textColor = [UIColor whiteColor];
-			}
-		}
-	}
+	[self colorAlertTextRecursive:view];
 
 	// Get Buttons
 	UIInterfaceActionGroup *actionGroup = MSHookIvar<UIInterfaceActionGroup*>(mainView, "_actionGroup");
@@ -191,6 +251,16 @@ static float buttonBlurColorIntensity = 0.3;
 		if([actionInterface isKindOfClass:%c(_UIAlertControllerActionViewInterfaceAction)]) {
 			_UIAlertControllerActionViewInterfaceAction *action = (_UIAlertControllerActionViewInterfaceAction*)actionInterface;
 			_UIAlertControllerActionView *actionView = action.alertControllerActionView;
+
+			UIAlertAction *actionTmp = MSHookIvar<UIAlertAction*>(actionView, "_action");
+			if(actionTmp.style == UIAlertActionStyleCancel) {
+				self.baCancelActionView = (UIInterfaceActionRepresentationView *)actionView.superview;
+
+				if(removeCancelAction) {
+					actionView.superview.hidden = YES;
+				}
+			}
+
 			[actionView applyButtonStyle:NO];
 		} else {
 			DBG(@"[BlurryAlerts] Unknown action!");
@@ -221,11 +291,12 @@ static float buttonBlurColorIntensity = 0.3;
 			scrollViewWidth = view.frame.size.width;
 		}
 	}
+
 	[seqView setContentSize:(CGSizeMake(scrollViewWidth, scrollViewHeight))];
 
 	for (NSLayoutConstraint *c in seqView.constraints) {
-		//DBG(@"[BlurryAlerts] Constraint: %@", c);
-		if([[NSString stringWithFormat: @"%@", c] containsString:@"groupView.actionsSequence....height =="]) {
+		DBG(@"[BlurryAlerts] Constraint: %@", c);
+		if([[NSString stringWithFormat: @"%@", c] containsString:@"height =="]) {
 			c.constant = scrollViewHeight;
 		}
 	}
@@ -236,6 +307,12 @@ static float buttonBlurColorIntensity = 0.3;
 
 	if(!self.isBAEnabled)
 		return;
+
+	// Add dismiss recognizer
+	if(dismissAnywhere) {
+		UITapGestureRecognizer *singleFingerTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSingleTap:)];
+		[self._dimmingView addGestureRecognizer:singleFingerTap];
+	}
 
 	// Apply blur
 	UIView *blurView = self._dimmingView;
@@ -283,6 +360,28 @@ static float buttonBlurColorIntensity = 0.3;
 }
 
 %new
+- (void)handleSingleTap:(UITapGestureRecognizer*)recognizer {
+	DBG(@"[BlurryAlerts] Dismiss");
+
+	[self.baCancelActionView invokeInterfaceAction];
+}
+
+%new
+- (void)colorAlertTextRecursive:(UIView *)view {
+    NSArray *subviews = [view subviews];
+    if ([subviews count] == 0) return;
+
+    for (UIView *subview in subviews) {
+		if([subview isKindOfClass:%c(UILabel)]) {
+			UILabel *label = (UILabel*)subview;
+			label.tintColor = [UIColor whiteColor];
+			label.textColor = [UIColor whiteColor];
+		}
+        [self colorAlertTextRecursive:subview];
+    }
+}
+
+%new
 - (void)removeSeperatorViews:(NSArray*)subviews {
 	for(UIView *view in subviews) {
 		if([view isKindOfClass:%c(_UIInterfaceActionVibrantSeparatorView)]) {
@@ -299,6 +398,15 @@ static void loadPrefs() {
 
 	if([prefs objectForKey:@"isEnabled"] != nil)
 		tweakEnabled = [[prefs objectForKey:@"isEnabled"] boolValue];
+
+	if([prefs objectForKey:@"displaySheetsAsAlerts"] != nil)
+		displaySheetsAsAlerts = [[prefs objectForKey:@"displaySheetsAsAlerts"] boolValue];
+
+	if([prefs objectForKey:@"dismissAnywhere"] != nil)
+		dismissAnywhere = [[prefs objectForKey:@"dismissAnywhere"] boolValue];
+
+	if([prefs objectForKey:@"removeCancelAction"] != nil)
+		removeCancelAction = [[prefs objectForKey:@"removeCancelAction"] boolValue];
 	
 	// Background Blur
 	if([prefs objectForKey:@"backgroundBlurType"] != nil)
@@ -323,10 +431,15 @@ static void loadPrefs() {
 	if([prefs objectForKey:@"buttonBackgroundColorAlpha"] != nil)
 		buttonBackgroundColorAlpha = [[prefs objectForKey:@"buttonBackgroundColorAlpha"] floatValue];
 
-	if([prefs objectForKey:@"buttonBackgroundColor"] != nil) {
-		buttonBackgroundColor = LCPParseColorString([prefs objectForKey:@"buttonBackgroundColor"], @"#333333");
-		buttonBackgroundColor = [buttonBackgroundColor colorWithAlphaComponent:buttonBackgroundColorAlpha];
-	}
+	buttonBackgroundColor = LCPParseColorString([prefs objectForKey:@"buttonBackgroundColor"], @"#333333");
+	buttonBackgroundColor = [buttonBackgroundColor colorWithAlphaComponent:buttonBackgroundColorAlpha];
+
+	// Button destructive color
+	if([prefs objectForKey:@"buttonDestructiveColorAlpha"] != nil)
+		buttonDestructiveColorAlpha = [[prefs objectForKey:@"buttonDestructiveColorAlpha"] floatValue];
+
+	buttonDestructiveColor = LCPParseColorString([prefs objectForKey:@"buttonDestructiveColor"], @"#990000");
+	buttonDestructiveColor = [buttonDestructiveColor colorWithAlphaComponent:buttonDestructiveColorAlpha];
 }
 
 %ctor {
